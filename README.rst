@@ -8,7 +8,7 @@ This package contains the extensions to enable IAM OAuth Token-based AuthN/AuthZ
 Prerequisites
 --------------
 
-You should have an ECAS-Lab instance (at least JupiterHub >= 0.9 and Ophidia >= 1.5) running.
+You should have an ECAS-Lab instance (at least JupiterHub = 0.9 and Ophidia >= 1.5) running.
 
 Dependencies
 --------------
@@ -138,7 +138,7 @@ To this end, you may need to create a read-only user in the OphidiaDB in order t
 
 .. code-block:: sql
 
-	CREATE USER 'user'@'hostname';
+    CREATE USER 'user'@'hostname';
     GRANT SELECT ON ophidiadb.user TO 'user'@'hostname' IDENTIFIED BY 'password';
 
 You can also configure the OphidiaDB connection by creating the config.ini file as follows:
@@ -234,11 +234,90 @@ and create your customized *error.html* template, which will extend the base one
     {% block error_detail %}
     <div class="error">
     <p>Your credentials are valid, but your account on ECASLab was not found</p>
-    <p>Please, register at <a href="https://ecaslab.cmcc.it/web/registration.php">https://ecaslab.cmcc.it/web/registration.php</a>
+    <p>Please, register at /your/registration/link/
     <p>If you already have an account, please contact us at ecas-support [at] cmcc [dot] it</p>
     </div>
     
     {% endblock error_detail %}
 
-Additional information related to JupyterHub templates can be found `here <https://jupyterhub.readthedocs.io/en/stable/reference/templates.html>`_
-.
+Additional information related to JupyterHub templates can be found `here <https://jupyterhub.readthedocs.io/en/stable/reference/templates.html>`_.
+
+
+**Create automatically an ECASLab account**
+
+It is possible to automatically create an ECASLab account for a user who has not an account yet by using its INDIGO IAM credentials.
+
+*Quick way*
+
+Set the following configuration option in the *jupyterhub_config.py* (starting from the file provided by this repository).
+
+.. code-block:: python
+
+   LocalEnvAuthenticator.ecas_user = True
+
+
+*Detailed procedure*
+
+In order to accomplish that:
+
+- define a class attribute for the **LocalEnvAuthenticator** class:
+
+.. code-block:: python
+
+   class LocalEnvAuthenticator(LocalGenericOAuthenticator):
+       ecas_user = None
+     
+- set the corresponding setting in your *jupyterhub_config.py*:
+
+.. code-block:: python
+
+   LocalEnvAuthenticator.ecas_user = True
+
+If **True**, a new ECAS user will be automatically created using a randomly generated password.
+
+- extend the **authenticate** method as follows:
+
+.. code-block:: python
+
+    @gen.coroutine
+    def authenticate(self, handler, data=None):
+        for i in super().authenticate(handler,data):
+            yield i
+
+        auth_state = yield i
+
+        email = auth_state['auth_state']['oauth_user']['email']
+        username = auth_state['auth_state']['oauth_user']['preferred_username']
+        status = cr.main(username,email)
+        if status:
+            return auth_state
+        else:
+            if self.ecas_user:
+                characters = string.ascii_letters + string.digits + '+-_='
+                password =  "".join(choice(characters) for x in range(randint(8, 16))) 
+                                
+                p = subprocess.Popen(["oph_manage_user -a add -u " +username+ " -p " +password+ " -c 20 -r no -d /home/" +username+ "-o "+username+" -e "+email],shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                out, err = p.communicate()
+
+                if err:
+                    print("Error in creating new user")
+                    return
+                else:
+                    print("New ECAS user created")
+                    return auth_state
+            else:
+                return
+
+Note: if the server is deployed on a different machine than the one hosting the JupyterHub instance, please execute the command over ssh. For example:
+
+ .. code-block:: python
+
+   ssh = subprocess.Popen(["ssh", "%s" % HOST, COMMAND],shell=False,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+   result = ssh.stdout.readlines()
+   if result == []:
+      print(ssh.stderr.readlines())
+      return
+   else:
+      print("New ECAS user created")
+      return auth_state
+

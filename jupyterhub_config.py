@@ -5,9 +5,13 @@ from tornado import gen
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import check_registration as cr
 import json
-
+import subprocess
+import string
+from random import *
 
 class LocalEnvAuthenticator(LocalGenericOAuthenticator):
+
+    ecas_user = None
 
     @gen.coroutine
     def pre_spawn_start(self, user, spawner):
@@ -30,10 +34,26 @@ class LocalEnvAuthenticator(LocalGenericOAuthenticator):
         if status: 
             return auth_state
         else:
-            return
+            if self.ecas_user:
+                characters = string.ascii_letters + string.digits + '+-_='
+                password =  "".join(choice(characters) for x in range(randint(8, 16))) 
+                                
+                p = subprocess.Popen(["oph_manage_user -a add -u " +username+ " -p " +password+ " -c 20 -r no -d /home/" +username+ "-o "+username+" -e "+email],shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                out, err = p.communicate()
+
+                if err:
+                    print("Error in creating new user")
+                    return
+                else:
+                    print("New ECAS user created")
+                    return auth_state
+            else:
+                return
 
 
 c.JupyterHub.authenticator_class = LocalEnvAuthenticator
+
+LocalEnvAuthenticator.ecas_user = True
 
 c.JupyterHub.template_paths = ['/path/to/your/templates/dir']
 
